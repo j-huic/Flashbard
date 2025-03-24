@@ -3,16 +3,7 @@ import easyocr
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
-path1 = 'photos/zoomed.jpg'
-path2 = 'photos/photo1.jpg'
-
-img = cv2.imread(path1)
-img2 = cv2.imread(path2)
-
-gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
+from sklearn.linear_model import LinearRegression
 
 ############## EASYOCR
 def get_rows(strs):
@@ -71,11 +62,69 @@ rows = get_rows(strs)
 df = rows_to_df(rows)
 df.head()
 
-strs[20:]
+test = pd.DataFrame(results)
 
-results[-1]
+test.shape
+test.head()
 
-'1083' in strs
+def results_df(results):
+    df = {
+        'text': [],
+        'x': [],
+        'y': [],
+        'prob': []
+    }
+    for item in results:
+        df['text'].append(item[1])
+        df['x'].append(int(item[0][0][0]))
+        df['y'].append(int(item[0][0][1]))
+        # df['coords'].append([int(num) for num in item[0][0]])
+        df['prob'].append(int(item[2]))
+
+    return pd.DataFrame(df)
+
+results[2][2]
+
+bla = results_df(results)
+
+bla.head()
+
+bla.sort_values(['y', 'x'], inplace=True)
+bla[bla.text=='TEST JEZELF']
+bla.iloc[160:190,:]
+
+def remove_jezelf(df):
+    if 'TEST JEZELF' not in df.text.values:
+        print('not here')
+        return df
+    else:
+        y = df[df.text=='TEST JEZELF']['y'].values[0]
+
+    return df[df.y < y].copy()
+        
+from sklearn.cluster import KMeans
+
+def classify_columns(df, n):
+    points = np.array(df[['x', 'y']])
+
+    return
+
+def classify_columns(df, ncol):
+    points = np.array(df[['x', 'y']])
+    kmeans = KMeans(n_clusters=6, n_init=10)
+    col_ass = kmeans.fit_predict(points[:, [0]])
+
+    return col_ass
+
+
+df.head(20)
+
+df = remove_jezelf(bla)
+df.y.min()
+df.tail(20)
+
+'TEST JEZELF' in df.text.values
+
 
 plt.imshow(anno)
 cv2.imwrite('annotated.jpg', anno)
@@ -85,7 +134,6 @@ cv2.imwrite('annotated.jpg', det)
 
 
 
-bla = img_details(img, result)
 
 plt.imshow(bla)
 
