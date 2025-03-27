@@ -1,207 +1,292 @@
-import cv2
+import os
+import cv2 
 import easyocr
 import numpy as np
 import pandas as pd
+from PIL import Image
+from tqdm import tqdm
+from importlib import reload
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
+
+import functions; reload(functions)
+from functions import *
 
 ############## EASYOCR
-def get_rows(strs):
-    isnum = [string.isdigit() for string in strs]
-    nums = np.where(isnum)[0]
-
-    rows = []
-    for i in range(sum(isnum) - 1):
-        rows.append(strs[nums[i]:nums[i+1]])
-
-    return rows
-
-def get_stringlist(path, reader=None):
-    if reader is None:
-        reader = easyocr.Reader(['en', 'nl'])
-
-    img = cv2.imread(path)
-    results = reader.readtext(img)
-    strs = [item[1] for item in results]
-    # if 'TEST JEZELF' in strs:
-    #     strs = strs[:strs.index('TEST JEZELF')]
-
-    annotated = img_details(img, results)
-
-    return strs, annotated
-
-def rows_to_df(rows):
-    df = pd.DataFrame(rows)
-    df.columns = ['n'] + [str(i) for i in range(df.shape[1]-1)]
-    df.sort_values('n', ascending=True, inplace=True)
-    
-    return df
-
-def healthy_row(dfrow):
-    if "(" in dfrow.iloc[1] and ")" not in dfrow.iloc[1]:
-        return False
-    # elif 
-
-def img_details(img, results):
-    img = img.copy()
-    for (bbox, text, confidence) in results:
-        bbox = [(int(x), int(y)) for x, y in bbox]
-        cv2.polylines(img, [np.array(bbox)], isClosed=True, color=(0,255,0), thickness=2)
-        cv2.putText(img, f'{text} ({confidence:.2f}', (bbox[0][0], bbox[0][1]-10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0,115,0), 2)
-
-    return img
 
 path = 'photos/best.jpg'
 img = cv2.imread(path)
-
 reader = easyocr.Reader(['en', 'nl'])
+
 results = reader.readtext(img)
-strs, anno = get_stringlist('photos/best.jpg', reader)
+strs, anno = get_stringlist(path, reader)
 rows = get_rows(strs)
 df = rows_to_df(rows)
-df.head()
 
-test = pd.DataFrame(results)
-
-test.shape
-test.head()
-
-def results_df(results):
-    df = {
-        'text': [],
-        'x': [],
-        'y': [],
-        'prob': []
-    }
-    for item in results:
-        df['text'].append(item[1])
-        df['x'].append(int(item[0][0][0]))
-        df['y'].append(int(item[0][0][1]))
-        # df['coords'].append([int(num) for num in item[0][0]])
-        df['prob'].append(int(item[2]))
-
-    return pd.DataFrame(df)
-
-results[2][2]
-
-bla = results_df(results)
-
-bla.head()
-
-bla.sort_values(['y', 'x'], inplace=True)
-bla[bla.text=='TEST JEZELF']
-bla.iloc[160:190,:]
-
-def remove_jezelf(df):
-    if 'TEST JEZELF' not in df.text.values:
-        print('not here')
-        return df
-    else:
-        y = df[df.text=='TEST JEZELF']['y'].values[0]
-
-    return df[df.y < y].copy()
-        
-from sklearn.cluster import KMeans
-
-def classify_columns(df, n):
-    points = np.array(df[['x', 'y']])
-
-    return
-
-def classify_columns(df, ncol):
-    points = np.array(df[['x', 'y']])
-    kmeans = KMeans(n_clusters=6, n_init=10)
-    col_ass = kmeans.fit_predict(points[:, [0]])
-
-    return col_ass
-
-
-df.head(20)
-
-df = remove_jezelf(bla)
-df.y.min()
-df.tail(20)
-
-'TEST JEZELF' in df.text.values
+points = results_df(results)
+points = remove_jezelf(points)
+points['col'] = classify_columns(points, 6)
 
 
 plt.imshow(anno)
 cv2.imwrite('annotated.jpg', anno)
-
 det = img_details(img, results)
 cv2.imwrite('annotated.jpg', det)
 
+#################
+
+def imgpath_to_words(path, reader, ncol=6):
+    results = reader.readtext(path)
+    df = results_df(results)
+    df = remove_jezelf(df)
+    df['col'] = classify_columns(df, ncol)
+    df = single_file(df)
+    rows = get_rows(df['text'].values)
+
+    return pd.DataFrame(rows)
+
+def parse_results(results, ncol=6):
+    df = results_df(results)
+    df['col'] = classify_columns(df, ncol)
+    # df = single_file(df)
+
+    return df
+################
+img_paths = ['get/'+path for path in os.listdir('get')]
+reader = easyocr.Reader(['en', 'nl'])
+
+
+path_results = get_results(reader)
+img_results = get_results(reader, bypath=False)
+########
+
+dfs = [parse_results(r) for r in img_results]
+
+dfs[0]
+
+df = dfs[0]
+
+df.sort_values('y', inplace=True)
+df['i'] = df.groupby('col').cumcount()
+left = df[df.col.isin([0,1,2])].copy()
+
+lpiv = left.pivot(columns='col', values='text', index='i')
+lpiv.columns=['n', 'in', 'out']
+lpiv.reset_index(drop=True, inplace=True)
+
+nums = left[left.col==0].copy()
+difs = (nums.y.shift(-1) - nums.y).reset_index(drop=True)
+nums['dif'] = nums.y.shift(-1) - nums.y 
+lpiv['dif'] = difs
+
+left.head()
+
+# def adjust(n, in, out):
+nums = left[left.col==0].copy()
+n = nums['text'].values.copy()
+difs = (nums.y.shift(-1) - nums.y).values.copy()
+dutch = left[left.col==1]['text'].values.copy()
+english = left[left.col==2]['text'].values.copy()
+
+lpiv
+
+def get_cols(df):
+    norm_y = (df['y'] - df['y'].min()) / (df['y'].max() - df['y'].min())
+    norm_x = (df['x'] - df['x'].min()) / (df['x'].max() - df['x'].min())
+    df['sort_key'] = norm_y * factor + norm_x
+
+    df = df.sort_values('sort_key')
+    # number column
+    nums = df[df['col']==0].copy()
+    num_dif = (nums['y'].shift(-1) - nums['y']).values.copy()
+    n = nums['text'].values.copy()
+    # left text column
+    left = df[df['col']==1].copy()
+    word_diff = (left['y'] - left['y'].shift(1)).values.copy()
+    dutch = left['text'].values.copy()
+    # right text column
+    english = df[df['col']==2]['text'].values.copy()
+
+    return n, dutch, english, num_dif, word_diff
+
+df = dfs[1]
+df['col'] = classify_columns(df, 6)
+left = df[df.col.isin([0,1,2])]
+
+a, b, c, d, e = get_cols(df)
+
+n, nl, eng, nd, wd = get_cols(df)
+
+nl = line_clean(nl, wd)
+
+test = adjust(n, nd, nl, eng)
+
+test
+
+
+# n = left[left.col==0]['text'].values
+# t = l['text'].values
+# d = l['dif'].values
+# m = np.nanmedian(l['dif'])
+
+df = left.copy()
+factor=100
+
+def line_clean(text, difs):
+    new = [text[0]]
+    offset = 0
+    m = np.nanmedian(difs)
+
+    for i in range(1, len(t)):
+        if difs[i] < 0.2*m:
+            new[-1] = new[-1] + ' ' + text[i]
+            offset += 1
+        else:
+            new.append(text[i])
+
+    return new
 
 
 
-plt.imshow(bla)
+test = adjust(a, b, c, d)
+d[:10]
+test
+   
+dfs[0]
 
-plt.imshow(img)
-cv2.imwrite('bla.jpg', img)
+def adjust(n, dif, dutch, english):
+    output = {'n': [], 'nl': [], 'eng': []}
+    offset = 0
+    med_dif = np.nanmedian(dif)
 
-df.sort_index()
-df[df.n=='1048']
+    for idx in range(len(n) - 1):
+        output['n'].append(n[idx])
+        output['eng'].append(english[idx])
 
-isna = df.apply(lambda x: sum(x.isna()), axis=1)
+        if dif[idx] < med_dif * 1.5:
+            output['nl'].append(dutch[idx+offset])
+        else:
+            output['nl'].append(dutch[idx+offset]+' '+dutch[idx+offset+1])
+            offset += 1
 
-df[isna<5]
+    idx = len(n) - 1
+    output['n'].append(n[idx])
+    output['eng'].append(english[idx])
+    if len(dutch) == len(output['nl']) + offset + 2:
+        output['nl'].append(dutch[idx+offset]+' '+dutch[idx+offset+1])
+    else:
+        output['nl'].append(dutch[idx+offset])
 
-isna.hist()
-
-sum(isna<8)
-isna.min()
-isna.unique()
-row = df.loc[1,:]
-
-row.isna()
-
-
-
-df.shape
-
-i = df.loc[:,0].values
-len(i)
-
-df.head()
-df.sort_values('0')
-
-df.columns = [str(i) for i in range(20)]
-
-
-
-strs.index('TEST JEZELF')
-
-bla = strs[150:170].copy()
-
-bla[:bla.index('TEST JEZELF')]
-
-bla
-
-rows[::-1]
-
-strs[int(np.where(np.array(strs)=="1057")[0][0]):]
+    return pd.DataFrame(output)
     
 
 
-gray = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
-contours, _ = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-
-contour_img = img2.copy()
-cv2.drawContours(contour_img, contours, -1, (0, 255, 0), 2)
-
-plt.imshow(cv2.cvtColor(contour_img, cv2.COLOR_BGR2RGB))
+lpiv.head()
+lpiv.tail()
 
 
+left.sort_values('y')
+
+nums.dif.median()
+nums.head()
+
+nums.iloc[9:]
+
+nums.dif.max()
+
+img_results[0][0]
+
+nums.head()
+
+nums.dif.hist()
+t = results_df(img_results[0])
+t.head()
+
+lpiv.tail()
+
+
+# for i, row in lpiv.iterrows():
+    
 
 
 
 
 
+plt.imshow(cv2.imread(img_paths[2]))
+
+img_paths[2]
 
 
-#############
+
+r = reader.readtext(cv2.imread(img_paths[5]))
+
+
+img_paths[5]
+r
+
+img_paths[5]
+dfs = []
+issues = []
+
+
+
+
+
+for path in tqdm(img_paths):
+    try:
+        df = imgpath_to_words(path, reader)
+        dfs.append(df)
+    except Exception as e:
+        issues.append(e)
+
+
+# reading from path
+results = path_results[1]
+
+
+
+df = results_df(results)
+df = remove_jezelf(df)
+df['col'] = classify_columns(df, 6)
+
+sf = single_file(df)
+rows = get_rows(sf.text.values)
+rows[::-1]
+pd.DataFrame(rows)
+
+
+bla = imgpath_to_words(img_paths[1], reader)
+
+sf.head(20)
+
+
+
+bla
+
+pd.DataFrame(rows)
+
+len(dfs[1])
+
+from PIL import Image
+
+image = Image.open('image_file.jpeg')
+    
+# next 3 lines strip exif
+data = list(image.getdata())
+image_without_exif = Image.new(image.mode, image.size)
+image_without_exif.putdata(data)
+    
+image_without_exif.save('image_file_without_exif.jpeg')
+
+# as a good practice, close the file handler after saving the image.
+image_without_exif.close()
+
+bla = imgpath_to_words(path, reader)
+
+
+
+test = single_file(points)
+
+# test = get_rows(sorted.text.values)
 
 
