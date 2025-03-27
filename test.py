@@ -34,22 +34,7 @@ cv2.imwrite('annotated.jpg', det)
 
 #################
 
-def imgpath_to_words(path, reader, ncol=6):
-    results = reader.readtext(path)
-    df = results_df(results)
-    df = remove_jezelf(df)
-    df['col'] = classify_columns(df, ncol)
-    df = single_file(df)
-    rows = get_rows(df['text'].values)
 
-    return pd.DataFrame(rows)
-
-def parse_results(results, ncol=6):
-    df = results_df(results)
-    df['col'] = classify_columns(df, ncol)
-    # df = single_file(df)
-
-    return df
 ################
 img_paths = ['get/'+path for path in os.listdir('get')]
 reader = easyocr.Reader(['en', 'nl'])
@@ -59,11 +44,114 @@ path_results = get_results(reader)
 img_results = get_results(reader, bypath=False)
 ########
 
-dfs = [parse_results(r) for r in img_results]
+def page_to_output(results, nfiles, ncol):
+    df = parse_results(results)
 
-dfs[0]
 
-df = dfs[0]
+test = [df for r in img_results for df in single_file(results_df(r))]
+
+
+len(test)
+
+test[5]
+
+test[0].shape
+
+
+dfs = [results_df(r) for r in img_results]
+
+def bla(x):
+    return np.array([1,2])*x
+
+pd.concat({'a':1, 'b':2}, [None, None])
+
+a = pd.DataFrame({'a':[1], 'b':[2]})
+a.concat(pd.DataFrame[None, None])
+
+pd.DataFrame([[None]*3], columns=['a', 'b', 'c'])
+
+
+out = []
+for i, item in enumerate(test):
+    try:
+        out.append(parse_df(item))
+    except Exception as e:
+        out.append({
+            'i': i,
+            'error': e
+        })
+
+out[5]
+
+for i, item in enumerate(out):
+    item.to_excel(f'output/out_{i}.xlsx', index=False)
+
+all = pd.concat(out)
+all.shape
+all.sort_values('n')
+all.to_excel('all.xlsx', index=False)
+
+parse_df(test[1])
+
+t = test[1]
+t.shape
+t
+
+n, nl, eng, nd, wd = get_cols(t)
+nl
+
+
+[df for i in range(10) for df in bla(i)]
+
+
+n, nl, eng, ndiff, wdiff = get_cols(dfs[5])
+nl = line_clean(nl, wdiff)
+test = adjust(n, nl, eng, ndiff)
+
+test
+test.to_excel('example6.xlsx', index=False)
+
+dfs[4]
+df = dfs[4]
+left = df[df.col.isin([0,1,2])].copy()
+
+left
+n, nl, eng, nd, wd = get_cols(left)
+nl = line_clean(nl, wd)
+nl
+eng
+
+a = pd.DataFrame({'nl':nl, 'd':wd})
+left
+a
+img_paths[4]
+img_details(cv2.imread(img_paths[4]), img_results[4], 'bla.jpg')
+
+len(nl)
+len(eng)
+pd.DataFrame({'a':nl, 'b':eng})
+
+img = cv2.imread(img_paths[4])
+
+imgg = cv2.cvtColor(img, cv2.IMREAD_GRAYSCALE)
+# imggg = cv2.cvtColor(imgg, cv2.COLOR_GRAY2RGB)
+
+im = img
+r = reader.readtext(im, detail=1, contrast_ths=0.03, link_threshold=0.6, adjust_contrast=0.5)
+img_details(im, r, 'bla2.jpg')
+
+d = results_df(r)
+
+d['col'] = classify_columns(d, 6)
+
+nums = d[d.col==0]
+
+nums
+
+plt.imshow(bin)
+
+
+#############
 
 df.sort_values('y', inplace=True)
 df['i'] = df.groupby('col').cumcount()
@@ -89,24 +177,6 @@ english = left[left.col==2]['text'].values.copy()
 
 lpiv
 
-def get_cols(df):
-    norm_y = (df['y'] - df['y'].min()) / (df['y'].max() - df['y'].min())
-    norm_x = (df['x'] - df['x'].min()) / (df['x'].max() - df['x'].min())
-    df['sort_key'] = norm_y * factor + norm_x
-
-    df = df.sort_values('sort_key')
-    # number column
-    nums = df[df['col']==0].copy()
-    num_dif = (nums['y'].shift(-1) - nums['y']).values.copy()
-    n = nums['text'].values.copy()
-    # left text column
-    left = df[df['col']==1].copy()
-    word_diff = (left['y'] - left['y'].shift(1)).values.copy()
-    dutch = left['text'].values.copy()
-    # right text column
-    english = df[df['col']==2]['text'].values.copy()
-
-    return n, dutch, english, num_dif, word_diff
 
 df = dfs[1]
 df['col'] = classify_columns(df, 6)
@@ -131,52 +201,6 @@ test
 df = left.copy()
 factor=100
 
-def line_clean(text, difs):
-    new = [text[0]]
-    offset = 0
-    m = np.nanmedian(difs)
-
-    for i in range(1, len(t)):
-        if difs[i] < 0.2*m:
-            new[-1] = new[-1] + ' ' + text[i]
-            offset += 1
-        else:
-            new.append(text[i])
-
-    return new
-
-
-
-test = adjust(a, b, c, d)
-d[:10]
-test
-   
-dfs[0]
-
-def adjust(n, dif, dutch, english):
-    output = {'n': [], 'nl': [], 'eng': []}
-    offset = 0
-    med_dif = np.nanmedian(dif)
-
-    for idx in range(len(n) - 1):
-        output['n'].append(n[idx])
-        output['eng'].append(english[idx])
-
-        if dif[idx] < med_dif * 1.5:
-            output['nl'].append(dutch[idx+offset])
-        else:
-            output['nl'].append(dutch[idx+offset]+' '+dutch[idx+offset+1])
-            offset += 1
-
-    idx = len(n) - 1
-    output['n'].append(n[idx])
-    output['eng'].append(english[idx])
-    if len(dutch) == len(output['nl']) + offset + 2:
-        output['nl'].append(dutch[idx+offset]+' '+dutch[idx+offset+1])
-    else:
-        output['nl'].append(dutch[idx+offset])
-
-    return pd.DataFrame(output)
     
 
 
@@ -289,4 +313,13 @@ test = single_file(points)
 
 # test = get_rows(sorted.text.values)
 
-
+# imgb = cv2.GaussianBlur(imgg, (5,5), 0)
+# thresh = cv2.adaptiveThreshold(imgg, 55, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+#                                cv2.THRESH_BINARY, 11, 2)
+# thresh2 = cv2.adaptiveThreshold(imgg, 200, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+#                                cv2.THRESH_BINARY, 11, 2)
+# _, bin = cv2.threshold(imgg, 110, 255, cv2.THRESH_BINARY)
+# inv = cv2.bitwise_not(imgg)
+# kernel = np.ones((3,3), np.uint8)
+# cleaned = cv2.morphologyEx(imgg, cv2.MORPH_OPEN, kernel)
+#

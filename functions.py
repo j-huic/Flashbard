@@ -51,7 +51,7 @@ def img_details(img, results, path):
 
     cv2.imwrite('annotated/'+path, img)
 
-def results_df(results):
+def results_df(results, ncol=6):
     df = {
         'text': [],
         'x': [],
@@ -64,6 +64,9 @@ def results_df(results):
         df['x'].append(int(item[0][3][0]))
         df['y'].append(int(item[0][3][1]))
         df['prob'].append(float(item[2]))
+
+    df = pd.DataFrame(df)
+    df['col'] = classify_columns(df, ncol)
 
     return pd.DataFrame(df)
 
@@ -104,9 +107,7 @@ def single_file(df, idcol='col', nfiles=2):
         file = df[df[idcol].isin(file_idx)]
         files.append(file)
 
-    output = pd.concat(files)
-
-    return output
+    return files
 
 def wipe_metadata(path):
     image = Image.open(path)
@@ -133,4 +134,106 @@ def get_results(reader, bypath=True):
             raise Exception(f'error in {path}: ', e)
 
     return results
+
+def get_cols(df, factor=100):
+    norm_y = (df['y'] - df['y'].min()) / (df['y'].max() - df['y'].min())
+    norm_x = (df['x'] - df['x'].min()) / (df['x'].max() - df['x'].min())
+    df['sort_key'] = norm_y * factor + norm_x
+
+    df = df.sort_values('sort_key')
+    # number column
+    nums = df[df['col']==0].copy()
+    num_dif = (nums['y'].shift(-1) - nums['y']).values.copy()
+    n = nums['text'].values.copy()
+    # left text column
+    left = df[df['col']==1].copy()
+    word_diff = (left['y'] - left['y'].shift(1)).values.copy()
+    dutch = left['text'].values.copy()
+    # right text column
+    english = df[df['col']==2]['text'].values.copy()
+
+    return n, dutch, english, num_dif, word_diff
+
+def make_df(d):
+    lengths = [len(d[key]) for key in d.keys()]
+    max = np.max(lengths)
+
+    if len(np.unique(lengths)) == 1:
+        return pd.DataFrame(dict)
+    else:
+        for key in d.keys():
+            l = list(d[key])
+            length = len(l)
+            len_diff = max - length
+
+            if length < max:
+                l += [None] * len_diff
+                d[key] = l
+
+    return pd.DataFrame(d)
+
+def imgpath_to_words(path, reader, ncol=6):
+    results = reader.readtext(path)
+    df = results_df(results)
+    df = remove_jezelf(df)
+    df['col'] = classify_columns(df, ncol)
+    df = single_file(df)
+    rows = get_rows(df['text'].values)
+
+    return pd.DataFrame(rows)
+
+def parse_results(results, ncol=6):
+    df = results_df(results)
+    df['col'] = classify_columns(df, ncol)
+    # df = single_file(df)
+
+    return df
+
+def parse_df(df):
+    df['col'] = df['col'] % 3
+    n, nl, eng, ndiff, wdiff = get_cols(df)
+    nl = line_clean(nl, wdiff)
+    out = adjust(n, nl, eng, ndiff)
+    empty_row = pd.DataFrame([[None]*len(out.columns)], columns=out.columns)
+
+    return pd.concat([out, empty_row])
+
+def line_clean(text, wdiff):
+    new = [text[0]]
+    offset = 0
+    m = np.nanmedian(wdiff)
+
+    for i in range(1, len(text)):
+        if wdiff[i] < 0.2*m:
+            new[-1] = new[-1] + ' ' + text[i]
+            offset += 1
+        else:
+            new.append(text[i])
+
+    return new
+
+def adjust(n, dutch, english, ndiff):
+    output = {'n': [], 'nl': [], 'eng': []}
+    offset = 0
+    med_dif = np.nanmedian(ndiff)
+
+    for idx in range(len(n) - 1):
+        output['n'].append(n[idx])
+        output['eng'].append(english[idx])
+
+        if ndiff[idx] < med_dif * 1.5:
+            output['nl'].append(dutch[idx+offset])
+        else:
+            output['nl'].append(dutch[idx+offset]+' '+dutch[idx+offset+1])
+            offset += 1
+
+    idx = len(n) - 1
+    output['n'].append(n[idx])
+    output['eng'].append(english[idx])
+    if len(dutch) == len(output['nl']) + offset + 2:
+        output['nl'].append(dutch[idx+offset]+' '+dutch[idx+offset+1])
+    else:
+        output['nl'].append(dutch[idx+offset])
+
+    return pd.DataFrame(output)
 
