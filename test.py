@@ -51,24 +51,8 @@ def page_to_output(results, nfiles, ncol):
 test = [df for r in img_results for df in single_file(results_df(r))]
 
 
-len(test)
-
-test[5]
-
-test[0].shape
-
 
 dfs = [results_df(r) for r in img_results]
-
-def bla(x):
-    return np.array([1,2])*x
-
-pd.concat({'a':1, 'b':2}, [None, None])
-
-a = pd.DataFrame({'a':[1], 'b':[2]})
-a.concat(pd.DataFrame[None, None])
-
-pd.DataFrame([[None]*3], columns=['a', 'b', 'c'])
 
 
 out = []
@@ -81,17 +65,11 @@ for i, item in enumerate(test):
             'error': e
         })
 
-out[5]
 
 for i, item in enumerate(out):
     item.to_excel(f'output/out_{i}.xlsx', index=False)
 
-all = pd.concat(out)
-all.shape
-all.sort_values('n')
-all.to_excel('all.xlsx', index=False)
 
-parse_df(test[1])
 
 t = test[1]
 t.shape

@@ -117,12 +117,11 @@ def wipe_metadata(path):
     iwe.save(path)
     iwe.close()
 
-def get_results(reader, bypath=True):
+def get_results(reader, bypath=False):
     paths = ['get/' + path for path in  os.listdir('get')]
     results = []
 
     for path in tqdm(paths):
-        tqdm.write(path)
         try:
             if bypath:
                 results.append(reader.readtext(path))
@@ -237,3 +236,18 @@ def adjust(n, dutch, english, ndiff):
 
     return pd.DataFrame(output)
 
+def unique_filename(proposed):
+    if not os.path.isfile(proposed):
+        return proposed
+    else:
+        base, ext = os.path.splitext(proposed)
+        suffix = 2
+
+        while True:
+            newname = base + str(suffix) + ext
+            if not os.path.isfile(newname):
+                return newname
+            else:
+                suffix += 1
+                continue
+    
