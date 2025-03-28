@@ -1,0 +1,9 @@
+*.jpg
+*.png
+*.xlsx
+*.txt
+output
+get
+.DS_Store
+__pycache__
+
