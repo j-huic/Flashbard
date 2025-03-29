@@ -1,10 +1,12 @@
 import os
 import cv2
+import json
 import easyocr
 import numpy as np
 import pandas as pd
 from PIL import Image
 from tqdm import tqdm
+from pathlib import Path
 from sklearn.cluster import KMeans
 
 def get_rows(strs):
@@ -41,8 +43,8 @@ def healthy_row(dfrow):
         return False
     # elif 
 
-def img_details(img, results, path):
-    img = img.copy()
+def img_details(imgpath, results, path):
+    img = cv2.imread(imgpath)
     for (bbox, text, confidence) in results:
         bbox = [(int(x), int(y)) for x, y in bbox]
         cv2.polylines(img, [np.array(bbox)], isClosed=True, color=(0,255,0), thickness=2)
@@ -135,30 +137,35 @@ def get_results(reader, bypath=False):
     return results
 
 def get_cols(df, factor=100):
+    df = df.copy()
     norm_y = (df['y'] - df['y'].min()) / (df['y'].max() - df['y'].min())
     norm_x = (df['x'] - df['x'].min()) / (df['x'].max() - df['x'].min())
     df['sort_key'] = norm_y * factor + norm_x
-
     df = df.sort_values('sort_key')
+
     # number column
     nums = df[df['col']==0].copy()
     num_dif = (nums['y'].shift(-1) - nums['y']).values.copy()
     n = nums['text'].values.copy()
+
     # left text column
     left = df[df['col']==1].copy()
-    word_diff = (left['y'] - left['y'].shift(1)).values.copy()
+    ldiff = (left['y'] - left['y'].shift(1)).values.copy()
     dutch = left['text'].values.copy()
-    # right text column
-    english = df[df['col']==2]['text'].values.copy()
 
-    return n, dutch, english, num_dif, word_diff
+    # right text column
+    right = df[df['col']==2].copy()
+    rdiff = (right['y'] - right['y'].shift(1)).values.copy()
+    english = right['text'].values.copy()
+
+    return n, dutch, english, num_dif, ldiff, rdiff
 
 def make_df(d):
     lengths = [len(d[key]) for key in d.keys()]
     max = np.max(lengths)
 
     if len(np.unique(lengths)) == 1:
-        return pd.DataFrame(dict)
+        return pd.DataFrame(d)
     else:
         for key in d.keys():
             l = list(d[key])
@@ -184,26 +191,29 @@ def imgpath_to_words(path, reader, ncol=6):
 def parse_results(results, ncol=6):
     df = results_df(results)
     df['col'] = classify_columns(df, ncol)
-    # df = single_file(df)
 
     return df
 
 def parse_df(df):
-    df['col'] = df['col'] % 3
-    n, nl, eng, ndiff, wdiff = get_cols(df)
-    nl = line_clean(nl, wdiff)
+    df.loc[:,'col'] = df.loc[:,'col'] % 3
+    n, nl, eng, ndiff, ldiff, rdiff = get_cols(df)
+    nl = line_clean(nl, ldiff)
+    eng = line_clean(eng, rdiff)
     out = adjust(n, nl, eng, ndiff)
     empty_row = pd.DataFrame([[None]*len(out.columns)], columns=out.columns)
 
     return pd.concat([out, empty_row])
 
-def line_clean(text, wdiff):
+def line_clean(text, wdiff, factor=0.3):
     new = [text[0]]
     offset = 0
     m = np.nanmedian(wdiff)
 
     for i in range(1, len(text)):
-        if wdiff[i] < 0.2*m:
+        # if wdiff[i] > 1.5*m:
+        #     # new.append('')
+        #     new.append(text[i])
+        if wdiff[i] < factor*m:
             new[-1] = new[-1] + ' ' + text[i]
             offset += 1
         else:
@@ -250,4 +260,65 @@ def unique_filename(proposed):
             else:
                 suffix += 1
                 continue
-    
+
+def get_remaining_paths(input_dir, place='results'):
+    if input_dir[-1] == '/':
+        input_dir = input_dir[:-1]
+
+    input_paths = [item for item in os.listdir(input_dir)]
+
+    if '.' not in place:
+        existing = [Path(item).stem for item in os.listdir(place)]
+    else:
+        if not os.path.isfile('.log.json'):
+            return input_paths
+        else:
+            with open('.log.json', 'r') as file:
+                log = json.load(file)
+                existing = log['hist']
+
+    remaining = []
+    for path in input_paths:
+        if Path(path).stem not in existing:
+            remaining.append(input_dir + '/' + path)
+        else:
+            continue
+
+    return remaining
+
+def update_log(changed):
+    with open('.log.json', 'r') as file:
+        log = json.load(file)
+
+    newhist = list(set(log['hist'].copy() + changed))
+    log['hist'] = newhist
+
+    with open('.log.json', 'w') as file:
+        json.dump(log, file)
+
+def sep_cols(df):
+
+    dfs = []
+    for col in df['col'].unique():
+        dfs.append(df[df['col']==col])
+
+    return dfs
+
+a, b, c = sep_cols(df)
+
+def find_n_rows(y):
+    df = pd.DataFrame({'y':y})
+    df.sort_values('y', inplace=True)
+    df['d'] = df['y'] - df['y'].shift(1)
+    df['mult'] = np.round(df['d'] / df['d'].median())
+
+    return df['mult'].sum() + 1
+
+def get_dims(df):
+    ncol = []
+    for col in df['col'].unique():
+        n = find_n_rows(df[df['col']==col]['y'].values)
+        ncol.append(n)
+
+    return ncol
+
