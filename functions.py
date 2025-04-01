@@ -1,6 +1,7 @@
 import os
 import cv2
 import json
+import pickle
 import easyocr
 import numpy as np
 import pandas as pd
@@ -106,7 +107,10 @@ def single_file(df, idcol='col', nfiles=2):
     files = []
 
     for file_idx in file_map:
-        file = df[df[idcol].isin(file_idx)]
+        file = df[df[idcol].isin(file_idx)].copy()
+        file[idcol] = file[idcol] % 3
+        # file.loc[idcol] = file[idcol] % len(file_idx)
+        # file[idcol] = file[idcol].astype(int)
         files.append(file)
 
     return files
@@ -254,7 +258,7 @@ def unique_filename(proposed):
         suffix = 2
 
         while True:
-            newname = base + str(suffix) + ext
+            newname = base + '_' + str(suffix) + ext
             if not os.path.isfile(newname):
                 return newname
             else:
@@ -297,22 +301,11 @@ def update_log(changed):
         json.dump(log, file)
 
 def sep_cols(df):
-
     dfs = []
     for col in df['col'].unique():
-        dfs.append(df[df['col']==col])
+        dfs.append(df[df['col']==col].copy())
 
     return dfs
-
-a, b, c = sep_cols(df)
-
-def find_n_rows(y):
-    df = pd.DataFrame({'y':y})
-    df.sort_values('y', inplace=True)
-    df['d'] = df['y'] - df['y'].shift(1)
-    df['mult'] = np.round(df['d'] / df['d'].median())
-
-    return df['mult'].sum() + 1
 
 def get_dims(df):
     ncol = []
@@ -322,3 +315,106 @@ def get_dims(df):
 
     return ncol
 
+def find_n_rows(y):
+    df = pd.DataFrame({'y':y})
+    df.sort_values('y', inplace=True)
+    df['d'] = df['y'] - df['y'].shift(1)
+    df['mult'] = np.round(df['d'] / df['d'].median())
+
+    return df['mult'].sum() + 1
+
+def points(df):
+    output = []
+
+    for col in df['col'].unique():
+        points = df[df['col'] == col]
+        pointlist = []
+        for _, row in points.iterrows():
+            point = {
+                'text': row['text'],
+                'x': int(row['x']),
+                'y': int(row['y'])
+            }
+            pointlist.append(point)
+
+        output.append(pointlist)
+
+    return output
+
+def same_row(points, rowheight, factor=0.3):
+    min = np.min(points)
+    max = np.max(points)
+
+    if (max - min) > rowheight*factor:
+        return False
+    else:
+        return True
+
+def load_results(dir='results', subcat=None, filetype='pkl'):
+    parent = os.path.dirname(os.path.abspath(__file__))
+    full_dir = parent + '/' + dir
+    item_paths = [full_dir + '/' + path for path in os.listdir(full_dir)]
+    result_paths = [path for path in item_paths if path.endswith(filetype)]
+
+    if subcat is not None:
+        stems_to_get = [Path(path).stem for path in os.listdir(parent + '/' + subcat)]
+        result_paths = [str(Path(parent) / dir / f"{stem}.{filetype}") 
+            for stem in stems_to_get]
+        
+
+    result_paths.sort()
+    results = []
+
+    for path in result_paths:
+        if filetype == 'csv':
+            with open(path, 'r') as file:
+                results.append(pd.read_csv(file))
+        else:
+            with open(path, 'rb') as file:
+                results.append(pickle.load(file))
+
+    return results, result_paths
+
+def index_by_row(df):
+    df = df.sort_values('y')
+    df.reset_index(inplace=True)
+    df['d'] = df['y'] - df['y'].shift(1)
+    df['mult'] = np.round(df['d'] / df['d'].median())
+    df.loc[0, 'mult'] = 0
+    df['i'] = df['mult'].cumsum().astype(int)
+
+    dfx = df[['text', 'i', 'x']].copy()
+    dfx.set_index('i', inplace=True)
+    dfx.sort_values(['i', 'x'], inplace=True)
+    dfx = dfx.groupby('i').agg({'text': ' '.join})
+
+    return dfx
+
+def assign_grid_positions(df):
+    dfxs = []
+    for col in df['col'].unique():
+        dfx = index_by_row(df[df['col']==col].copy())
+        dfx.columns = [col]
+        dfxs.append(dfx)
+
+    all = pd.concat(dfxs, axis=1)
+
+    return all.sort_values('i')
+
+def concatenate_multirow_cells(df):
+    df = df[sorted(df.columns)].copy()
+    df.replace('', np.nan, inplace=True)
+    
+    for i in range(1, len(df)):
+        nas = df.iloc[i].isna()
+        if nas.any():
+            if nas.loc[0]:
+                for col in df.columns:
+                    if not pd.isna(df.iloc[i][col]):
+                        df.loc[i-1, col] = df.loc[i-1, col] + ' ' + df.loc[i, col]
+                
+                df.iloc[i, :] = np.nan
+            else:
+                df.iloc[i, nas] = ''
+    
+    return df.dropna(how='all').reset_index(drop=True)
