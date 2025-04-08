@@ -1,6 +1,7 @@
 import os
 import cv2
 import json
+import math
 import pickle
 import easyocr
 import numpy as np
@@ -28,7 +29,7 @@ def get_stringlist(path, reader=None):
     results = reader.readtext(img)
     strs = [item[1] for item in results]
 
-    annotated = img_details(img, results)
+    annotated = img_details(img, results, Path(path).stem)
 
     return strs, annotated
 
@@ -52,6 +53,7 @@ def img_details(imgpath, results, path):
         cv2.putText(img, f'{text} ({confidence:.2f}', (bbox[0][0], bbox[0][1]-10),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0,115,0), 2)
 
+    os.makedirs('annotated', exist_ok=True)
     cv2.imwrite('annotated/'+path, img)
 
 def results_df(results, ncol=6):
@@ -64,7 +66,7 @@ def results_df(results, ncol=6):
 
     for item in results:
         df['text'].append(item[1])
-        df['x'].append(int(item[0][3][0]))
+        df['x'].append((int(item[0][3][0]) + int(item[0][0][0])) / 2)
         df['y'].append(int(item[0][3][1]))
         df['prob'].append(float(item[2]))
 
@@ -375,13 +377,29 @@ def load_results(dir='results', subcat=None, filetype='pkl'):
 
     return results, result_paths
 
-def index_by_row(df):
+def get_row_multiplier(distance, median_distance, threshold=0.3):
+    if np.isnan(distance):
+        return np.nan
+
+    ratio = distance / median_distance
+    nearest_int = round(ratio)
+
+    if abs(ratio - nearest_int) <= threshold:
+        return nearest_int
+    
+    return math.ceil(ratio)
+
+def index_by_row(df, m_thresh=0.3, diag=False):
     df = df.sort_values('y')
     df.reset_index(inplace=True)
     df['d'] = df['y'] - df['y'].shift(1)
-    df['mult'] = np.round(df['d'] / df['d'].median())
+    med = df['d'].median()
+    df['mult'] = df.apply(lambda x: get_row_multiplier(x['d'], med, m_thresh), axis=1)
     df.loc[0, 'mult'] = 0
     df['i'] = df['mult'].cumsum().astype(int)
+
+    if diag:
+        return df
 
     dfx = df[['text', 'i', 'x']].copy()
     dfx.set_index('i', inplace=True)
@@ -390,10 +408,10 @@ def index_by_row(df):
 
     return dfx
 
-def assign_grid_positions(df):
+def assign_grid_positions(df, m_thresh=0.3):
     dfxs = []
     for col in df['col'].unique():
-        dfx = index_by_row(df[df['col']==col].copy())
+        dfx = index_by_row(df[df['col']==col].copy(), m_thresh=m_thresh)
         dfx.columns = [col]
         dfxs.append(dfx)
 
@@ -418,3 +436,68 @@ def concatenate_multirow_cells(df):
                 df.iloc[i, nas] = ''
     
     return df.dropna(how='all').reset_index(drop=True)
+
+def concatenate_multirow_cells2(df):
+    df = df[sorted(df.columns)].copy()
+    df.replace('', np.nan, inplace=True)
+    
+    # Process rows bottom to top to properly handle consecutive NaN rows
+    for i in range(len(df) - 1, 0, -1):
+        nas = df.iloc[i].isna()
+        
+        # If the entire row is NaN, skip it
+        if nas.all():
+            continue
+            
+        # If we find a row with some NaN values
+        if nas.any():
+            # If the first column is NaN, this is a continuation row
+            if nas.loc[0]:
+                # Find the nearest non-NaN row above
+                target_row = i - 1
+                while target_row >= 0 and df.iloc[target_row].isna().all():
+                    target_row -= 1
+                
+                # If we found a valid target row
+                if target_row >= 0:
+                    # Merge non-NaN values from current row to target row
+                    for col in df.columns:
+                        if not pd.isna(df.iloc[i][col]):
+                            current_val = df.loc[target_row, col]
+                            new_val = df.iloc[i][col]
+                            # Concatenate with space only if current value isn't NaN
+                            if pd.isna(current_val):
+                                df.loc[target_row, col] = new_val
+                            else:
+                                df.loc[target_row, col] = f"{current_val} {new_val}"
+                
+                # Mark this row to be dropped
+                df.iloc[i, :] = np.nan
+            else:
+                # Just replace NaN with empty string in this row
+                df.iloc[i, nas] = ''
+    
+    return df.dropna(how='all').reset_index(drop=True)
+
+def get_best_fit(df, tries=None, diag=False):
+    if tries is None:
+        # tries = [(i*0.05 + 0.25) for i in range(7)]
+        tries = [0.4, 0.35, 0.45, 0.3, 0.5, 0.25, 0.55]
+
+    dfs = []
+    scores = []
+
+    for thresh in tries:
+        grid = assign_grid_positions(df, m_thresh=thresh)
+        output = concatenate_multirow_cells2(grid)
+        score = (output.isna() | (output=='')).sum().sum()
+        dfs.append(output)
+        scores.append(score)
+        
+    best = dfs[scores.index(np.min(scores))]
+
+    if diag:
+        return dfs, scores
+    else:
+        return best
+
