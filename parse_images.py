@@ -22,11 +22,13 @@ def main():
             img = cv2.imread(path)
             result = reader.readtext(img)
             results.append(result)
+            img_details(path, result, Path(path).stem+'.jpg')
         except:
             print(f'Error parsing {path}, skipping file')
 
     for img, result in zip(img_paths, results):
         img_id = Path(img).stem
+        os.makedirs('results', exist_ok=True)
         filename = 'results/' + img_id + '.pkl'
         with open(filename, 'wb') as file:
             pickle.dump(result, file)
