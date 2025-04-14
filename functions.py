@@ -267,23 +267,15 @@ def unique_filename(proposed):
                 suffix += 1
                 continue
 
-def get_remaining_paths(input_dir, place='results'):
+def get_remaining_paths(input_dir):
     if input_dir[-1] == '/':
         input_dir = input_dir[:-1]
 
     input_paths = [item for item in os.listdir(input_dir)]
 
-    if '.' not in place:
-        existing = [Path(item).stem for item in os.listdir(place)]
-    else:
-        if not os.path.isfile('.log.json'):
-            return input_paths
-        else:
-            with open('.log.json', 'r') as file:
-                log = json.load(file)
-                existing = log['hist']
-
+    existing = [Path(item).stem for item in os.listdir('results')]
     remaining = []
+
     for path in input_paths:
         if Path(path).stem not in existing:
             remaining.append(input_dir + '/' + path)
