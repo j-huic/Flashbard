@@ -45,8 +45,8 @@ def healthy_row(dfrow):
         return False
     # elif 
 
-def img_details(imgpath, results, path):
-    img = cv2.imread(imgpath)
+def img_details(img, results, path):
+    # img = cv2.imread(imgpath)
     for (bbox, text, confidence) in results:
         bbox = [(int(x), int(y)) for x, y in bbox]
         cv2.polylines(img, [np.array(bbox)], isClosed=True, color=(0,255,0), thickness=2)
@@ -408,8 +408,9 @@ def assign_grid_positions(df, m_thresh=0.3):
         dfxs.append(dfx)
 
     all = pd.concat(dfxs, axis=1)
+    all = all.sort_values('i')
 
-    return all.sort_values('i')
+    return all.reset_index(drop=True)
 
 def concatenate_multirow_cells(df):
     df = df[sorted(df.columns)].copy()
@@ -493,3 +494,17 @@ def get_best_fit(df, tries=None, diag=False):
     else:
         return best
 
+
+def single_file_alt(df):
+    left = df.iloc[:,:2]
+    right = df.iloc[:,2:4]
+
+    right.columns = left.columns
+    
+    return pd.concat([left, right])
+
+
+def headershift(df):
+    df.iloc[1:,1] = df.iloc[:-1,1]
+    df.iloc[0,1] = np.nan
+    return df
